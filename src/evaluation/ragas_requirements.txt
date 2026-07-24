@@ -1,0 +1,23 @@
+# Ticket 14 — Pinned Python dependencies for the offline RAGAS evaluator.
+#
+# Spec issue #14 criterion #1: "The evaluator environment pins compatible
+# Python, RAGAS and supporting dependency versions."
+#
+# These versions are pinned to a known-compatible set. Bump deliberately and
+# re-run the fake-process test suite (which does NOT require these packages)
+# plus a manual live RAGAS round-trip before merging.
+#
+# Install into a dedicated virtualenv so the offline evaluator does NOT
+# pollute the online chat runtime environment (criterion #6 architectural
+# invariant — the online Answer path remains pure TypeScript / Node).
+
+ragas==0.2.14
+langchain==0.3.14
+langchain-core==0.3.28
+langchain-openai==0.2.14
+langchain-community==0.3.14
+openai==1.59.6
+numpy==1.26.4
+pandas==2.2.3
+datasets==3.2.0
+tiktoken==0.8.0

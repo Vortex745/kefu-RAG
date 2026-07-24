@@ -1,0 +1,306 @@
+@import "tailwindcss" source(none);
+
+@source "../index.html";
+@source "../js/app.js";
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-sidebar: #f7f7f7;
+  --color-surface-muted: #f5f5f5;
+  --color-surface-hover: #eeeeee;
+  --shadow-composer: 0 1px 3px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.03);
+  --shadow-dialog: 0 24px 80px rgba(0, 0, 0, 0.18);
+  --animate-message-in: message-in 180ms ease-out both;
+  --animate-thinking: thinking 1.15s ease-in-out infinite;
+  --animate-pop-in: pop-in 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  --animate-dialog-in: dialog-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  --animate-backdrop-in: backdrop-in 180ms ease-out both;
+  --animate-message-send: message-send 170ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  --animate-fade-in: fade-in 160ms ease-out both;
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    @apply size-full overflow-hidden;
+  }
+
+  body,
+  button,
+  textarea,
+  input {
+    letter-spacing: 0;
+  }
+
+  button:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #171717;
+    outline-offset: 2px;
+  }
+
+  svg {
+    @apply size-[18px] fill-none stroke-current;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes message-in {
+  from {
+    transform: translateY(5px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes thinking {
+  0%,
+  75%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  38% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* Popover / dropdown entrance: scale from trigger origin. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Modal dialog: subtle rise + fade. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* User message send: slight scale-up from the bubble, feels "sent". */
+@keyframes message-send {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Plain opacity fade for content that is already positioned. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Thinking dots hand-off: shrink + fade before the answer fades in. */
+@keyframes thinking-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@layer base {
+  /* Popover menus anchored to a trigger element. Animate in whenever
+     the menu becomes visible (i.e. [hidden] is removed). Closing stays
+     instant — same as before, and correct for menus. */
+  [data-popover] {
+    transform-origin: top left;
+  }
+  [data-popover]:not([hidden]) {
+    animation: pop-in 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  /* Native <dialog> entrance. `open` is the only state we can target
+     without JS; closing is instant unless we add a class, which the
+     existing markup doesn't have — entrance is the visible win. */
+  dialog[open] {
+    animation: dialog-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  dialog[open]::backdrop {
+    animation: backdrop-in 180ms ease-out both;
+  }
+
+  /* Smooth accordion for <details> reference panels. Chrome 129+;
+     graceful fallback elsewhere (instant open, same as before). */
+  @supports (interpolate-size: allow-keywords) {
+    :root {
+      interpolate-size: allow-keywords;
+    }
+    details[data-references-for]::details-content {
+      transition: height 220ms cubic-bezier(0.23, 1, 0.32, 1),
+        content-visibility 220ms allow-discrete;
+      height: 0;
+      overflow: clip;
+    }
+    details[data-references-for][open]::details-content {
+      height: auto;
+    }
+  }
+
+  /* Reference-item highlight: fade the green in and out instead of
+     snapping it on for 1600ms then off. */
+  [data-reference-item] {
+    transition: background-color 240ms ease-out;
+  }
+
+  /* Sidebar thread removal: collapse height + fade before DOM removal. */
+  .thread-leaving {
+    overflow: hidden;
+    opacity: 0;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    transition:
+      height 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      opacity 140ms ease-out,
+      margin 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  /* Thinking dots leaving: shrink + fade, then the answer fades in. */
+  .thinking-leaving {
+    animation: thinking-out 140ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    transform-origin: left center;
+  }
+  .answer-entering {
+    animation: fade-in 180ms ease-out 60ms both;
+  }
+
+  /* RAGAS bars animate via width (matches app.contract.test's allowed
+   * runtime style list) so the inline % setter triggers the transition. */
+  .ragas-bar-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: inherit;
+    background: var(--color-neutral-900);
+    transition: width 650ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+}
+
+/* Reduced motion: remove *movement*, keep opacity/color feedback so
+   the UI still acknowledges actions. Thinking dots keep an opacity
+   pulse (no vertical travel) so "working" is still legible. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
+  /* Entrance/exit motion → instant appearance (opacity kept by
+     leaving the animation's final frame implicit). */
+  .animate-message-in,
+  .animate-pop-in,
+  .animate-dialog-in,
+  .animate-backdrop-in,
+  [data-popover]:not([hidden]),
+  dialog[open],
+  dialog[open]::backdrop,
+  .answer-entering {
+    animation-duration: 1ms !important;
+    animation-timing-function: steps(1, end) !important;
+  }
+
+  /* User-message send: drop the scale/translate, keep a brief fade. */
+  .animate-message-send {
+    animation: fade-in 120ms ease-out both !important;
+  }
+
+  /* Thinking dots: no vertical bounce, but keep the opacity pulse. */
+  .animate-thinking {
+    animation-name: thinking-reduced !important;
+  }
+
+  /* Sidebar collapse/expand: 1ms is effectively instant. */
+  #sidebar,
+  #sidebar-backdrop {
+    transition-duration: 1ms !important;
+  }
+
+  /* Reference-panel accordion: instant open/close. */
+  details[data-references-for]::details-content {
+    transition-duration: 1ms !important;
+  }
+
+  /* Highlight / hover fades can stay (opacity/color only), but make
+     them fast. */
+  [data-reference-item] {
+    transition-duration: 60ms !important;
+  }
+
+  /* Toast: drop the rise, keep the fade. */
+  #toast {
+    transform: none !important;
+    transition: opacity 120ms ease-out !important;
+  }
+
+  /* RAGAS bars: snap to final value. */
+  .ragas-bar-fill {
+    transition-duration: 1ms !important;
+  }
+
+  /* Thread removal: instant. */
+  .thread-leaving {
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes thinking-reduced {
+  0%, 75%, 100% { opacity: 0.35; transform: none; }
+  38% { opacity: 1; transform: none; }
+}

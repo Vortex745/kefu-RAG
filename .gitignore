@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+# Added by code-review-graph
+.code-review-graph/
+# Ticket 04: release-time evidence artifacts — must not dirty the trusted worktree
+.release-artifacts/

@@ -1,0 +1,35 @@
+✔ Ticket 23 #1a: probe returns ok=true with non-empty normalized blocks (610.8796ms)
+✔ Ticket 23 #1b: probe verifies parser identity is mineru (591.3177ms)
+✔ Ticket 23 #1c: probe verifies block provenance is {parser:mineru, adapter:cli} (601.8506ms)
+✔ Ticket 23 #1d: probe verifies block types include heading and paragraph (565.0028ms)
+✔ Ticket 23 #1e: probe exercises production selectParser routing for image (620.1285ms)
+✔ Ticket 23 #1f: probe verifies blocks have stable ids and types (606.5483ms)
+✔ Ticket 23 #1g: probe verifies blocks carry page provenance (621.4746ms)
+✔ Ticket 23 #2a: all 6 failure modes are explicit and recorded (599.9966ms)
+✔ Ticket 23 #2b: failure mode errors are recorded as bounded evidence (604.6579ms)
+✔ Ticket 23 #2c: missing runtime failure mentions unavailable (607.9775ms)
+✔ Ticket 23 #2d: timeout failure mentions timeout (609.7821ms)
+✔ Ticket 23 #2e: malformed output failure mentions malformed (611.0997ms)
+✔ Ticket 23 #2f: cancellation failure mentions cancel (593.0517ms)
+✔ Ticket 23 #2g: output quota failure mentions exceeded (566.3471ms)
+✔ Ticket 23 #2h: missing media reference failure mentions image or reference (628.8506ms)
+✔ Ticket 23 #3a: version isolation — failed parse preserves previous active version (586.0427ms)
+✔ Ticket 23 #3b: version isolation — failed version status is recorded (593.5373ms)
+✔ Ticket 23 #3c: version isolation — active version id is recorded (591.5532ms)
+✔ Ticket 23 #4: probe returns durationMs (644.0133ms)
+✔ Ticket 23 #5a: probe fails when fixture is missing (0.5124ms)
+✔ Ticket 23 #5b: probe fails when revision is missing (0.1934ms)
+✔ Ticket 23 #5c: probe fails when document is missing (0.102ms)
+✔ Ticket 23 #6: probe uses isolated acceptance tenant — never 'default' (653.9454ms)
+✔ Ticket 23 #7: outputs contain no image bytes, OCR text, or provider payloads (565.4821ms)
+✔ Ticket 23 #8: outputs carry bounded metadata only (578.324ms)
+✔ Ticket 23 #9: custom fixture revision derives different acceptance tenant (549.2885ms)
+✔ Ticket 23 #10: probe handles pre-aborted signal gracefully (0.3695ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15447.7398
