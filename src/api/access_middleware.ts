@@ -29,7 +29,7 @@ import {
 export interface AccessMiddlewareOptions {
   mode: "single_tenant" | "enforced"
   adapter?: IdentityAdapter
-  requiredScope: Scope
+  requiredScope?: Scope
 }
 
 export function createAccessMiddleware(options: AccessMiddlewareOptions) {
@@ -53,7 +53,7 @@ export function createAccessMiddleware(options: AccessMiddlewareOptions) {
       return
     }
 
-    if (!ctx.scopes.includes(options.requiredScope)) {
+    if (options.requiredScope && !ctx.scopes.includes(options.requiredScope)) {
       res.status(403).json({ error: `missing scope: ${options.requiredScope}` })
       return
     }

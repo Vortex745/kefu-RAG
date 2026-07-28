@@ -8,6 +8,7 @@ import { createAccessMiddleware } from "./access_middleware"
 import { SqliteSessionBinder, type BindResult, type SessionBinding } from "../access/session_binder"
 import type { AnswerRunEvent, AnswerRunResult } from "../types"
 import type { AnswerEventsSource } from "./chat"
+import type { AccessContext, IdentityAdapter } from "../access/context"
 
 /**
  * Ticket 05 follow-up wiring: createApp() now accepts optional accessMiddleware
@@ -132,6 +133,44 @@ test("Ticket 05 wiring: 409 from binder propagates through full createApp() Expr
       res.json && /conflict/i.test(String(res.json.error || "")),
       `409 body must mention 'conflict', got: ${JSON.stringify(res.json)}`
     )
+  } finally {
+    server.close()
+    db.close()
+  }
+})
+
+test("management routes authenticate before handlers and retain handler scope checks", async () => {
+  const db = openDb(":memory:")
+  let context: AccessContext | null = null
+  const adapter: IdentityAdapter = { resolve: async () => context }
+  const managementAccessMiddleware = createAccessMiddleware({
+    mode: "enforced",
+    adapter,
+  })
+  const app = createApp({
+    db,
+    managementAccessMiddleware,
+    eventsSource: stubEventsSource(),
+  })
+  const { server, port } = await listen(app)
+  try {
+    for (const path of ["/api/handoffs", "/api/sources/missing/status"]) {
+      const unauthenticated = await fetch(`http://127.0.0.1:${port}${path}`)
+      assert.equal(unauthenticated.status, 401, `${path} must reject missing identity`)
+    }
+
+    context = {
+      tenantId: "tenant-a",
+      subjectId: "user-1",
+      groups: [],
+      scopes: [],
+    }
+    const handoffs = await fetch(`http://127.0.0.1:${port}/api/handoffs`)
+    assert.equal(handoffs.status, 403)
+    assert.match(await handoffs.text(), /review or admin/)
+    const sourceStatus = await fetch(`http://127.0.0.1:${port}/api/sources/missing/status`)
+    assert.equal(sourceStatus.status, 403)
+    assert.match(await sourceStatus.text(), /admin/)
   } finally {
     server.close()
     db.close()

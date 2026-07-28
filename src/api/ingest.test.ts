@@ -10,10 +10,21 @@ import { DocumentRepo } from "../ingestion/tracking/doc_repo"
 import { _setTestDefaults } from "../ingestion/url_fetcher"
 import type { HostResolver } from "../ingestion/url_policy"
 import type { AnswerEventsSource } from "./chat"
+import type { RequestHandler } from "express"
 
 const eventsSource: AnswerEventsSource = async function* () {}
 
 const PUBLIC_IP = "93.184.216.34"
+
+const tenantAccessMiddleware: RequestHandler = (_req, res, next) => {
+  res.locals.accessContext = {
+    tenantId: "tenant-a",
+    subjectId: "support-user",
+    groups: ["support"],
+    scopes: ["ingest"],
+  }
+  next()
+}
 
 /** 合成 resolver：将 public.test 解析为公网 IP，绕过 SSRF 策略的 IP 校验。 */
 const PUBLIC_TEST_RESOLVER: HostResolver = async (hostname) => {
@@ -27,7 +38,7 @@ test("raw file ingestion accepts bounded bytes and file metadata before JSON par
   const directory = mkdtempSync(join(tmpdir(), "kefu-rag-api-"))
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "test-key"
   process.env.SQLITE_PATH = join(directory, "ingestion.db")
-  const server = createApp({ eventsSource }).listen(0)
+  const server = createApp({ eventsSource, ingestAccessMiddleware: tenantAccessMiddleware }).listen(0)
 
   try {
     await new Promise<void>((resolve) => server.once("listening", resolve))
@@ -43,6 +54,7 @@ test("raw file ingestion accepts bounded bytes and file metadata before JSON par
         "x-source-kind": "file",
         "x-source-id": "C:/knowledge/policy.docx",
         "x-source-namespace": "local",
+        "x-tenant-id": "attacker-tenant",
       },
       body: Buffer.from([0x00, 0xff, 0x41]),
     })
@@ -58,6 +70,54 @@ test("raw file ingestion accepts bounded bytes and file metadata before JSON par
     )
     assert.equal(document?.parserOverride, "markitdown")
     assert.deepEqual(document?.rawContent, Buffer.from([0x00, 0xff, 0x41]))
+    assert.equal(document?.tenantId, "tenant-a")
+    assert.deepEqual(document?.allowedGroups, ["support"])
+    const source = openDb().prepare(
+      "SELECT tenant_id, allowed_groups FROM sources WHERE source_id = ?"
+    ).get(document!.sourceId) as { tenant_id: string; allowed_groups: string }
+    assert.equal(source.tenant_id, "tenant-a")
+    assert.deepEqual(JSON.parse(source.allowed_groups), ["support"])
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve())
+    })
+    closeDb()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("JSON ingestion replaces caller-supplied ACL metadata with trusted access context", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kefu-rag-api-acl-"))
+  process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "test-key"
+  process.env.SQLITE_PATH = join(directory, "ingestion.db")
+  const server = createApp({
+    eventsSource,
+    ingestAccessMiddleware: tenantAccessMiddleware,
+  }).listen(0)
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve))
+    const address = server.address()
+    assert.ok(address && typeof address === "object")
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/ingest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Policy",
+        content: "Trusted ACL",
+        sourceIdentity: {
+          kind: "file",
+          uriOrExternalId: "C:/knowledge/policy.txt",
+          namespace: "upload",
+          tenantId: "attacker-tenant",
+          allowedGroups: ["attacker-group"],
+        },
+      }),
+    })
+    assert.equal(response.status, 200)
+    const submitted = await response.json() as { docId: string }
+    const document = new DocumentRepo(openDb()).get(submitted.docId)
+    assert.equal(document?.tenantId, "tenant-a")
+    assert.deepEqual(document?.allowedGroups, ["support"])
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve())
@@ -92,7 +152,7 @@ test("/ingest/url single mode fetches a URL and submits raw bytes to the lifecyc
   }
   _setTestDefaults({ resolver: PUBLIC_TEST_RESOLVER, fetchImpl })
 
-  const server = createApp({ eventsSource }).listen(0)
+  const server = createApp({ eventsSource, ingestAccessMiddleware: tenantAccessMiddleware }).listen(0)
   try {
     await new Promise<void>((resolve) => server.once("listening", resolve))
     const address = server.address()
@@ -114,6 +174,8 @@ test("/ingest/url single mode fetches a URL and submits raw bytes to the lifecyc
     assert.equal(document?.mimeType, "text/html")
     assert.equal(document?.title, "测试文档")
     assert.deepEqual(document?.rawContent, Buffer.from(html, "utf8"))
+    assert.equal(document?.tenantId, "tenant-a")
+    assert.deepEqual(document?.allowedGroups, ["support"])
   } finally {
     _setTestDefaults({})
     await new Promise<void>((resolve, reject) => {
@@ -248,7 +310,7 @@ test("/ingest/url sitemap mode parses sitemap and submits each page", async () =
   }
   _setTestDefaults({ resolver: PUBLIC_TEST_RESOLVER, fetchImpl })
 
-  const server = createApp({ eventsSource }).listen(0)
+  const server = createApp({ eventsSource, ingestAccessMiddleware: tenantAccessMiddleware }).listen(0)
   try {
     await new Promise<void>((resolve) => server.once("listening", resolve))
     const address = server.address()
@@ -281,6 +343,9 @@ test("/ingest/url sitemap mode parses sitemap and submits each page", async () =
     for (const item of result.items) {
       assert.ok(item.docId, "每个成功项应有 docId")
       assert.equal(item.status, "pending")
+      const document = new DocumentRepo(openDb()).get(item.docId)
+      assert.equal(document?.tenantId, "tenant-a")
+      assert.deepEqual(document?.allowedGroups, ["support"])
     }
   } finally {
     _setTestDefaults({})

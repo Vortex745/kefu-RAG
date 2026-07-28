@@ -161,6 +161,25 @@ test("Ticket 05 P4: enforced mode with identity and required scope calls next() 
   }
 })
 
+test("enforced mode can authenticate without imposing a handler-specific scope", async () => {
+  const ctx: AccessContext = {
+    tenantId: "tenant-a",
+    subjectId: "user-1",
+    groups: ["support"],
+    scopes: [],
+  }
+  const { port, close } = await withServer({
+    mode: "enforced",
+    adapter: { resolve: async () => ctx },
+  })
+  try {
+    const res = await postProbe(port)
+    assert.equal(res.status, 204)
+  } finally {
+    await close()
+  }
+})
+
 test("Ticket 05 P4: 401/403 responses do NOT call next() — side-effect gating (no Answer run/Ingestion task created)", async () => {
   // Counter tracks whether the handler was reached. 401/403 must keep it at 0.
   let handlerReached = 0

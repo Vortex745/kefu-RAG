@@ -121,3 +121,27 @@ test("Ticket 06 P2: createSource() returns SourceRecord with tenantId/allowedGro
     db.close()
   }
 })
+
+test("createSource() persists explicit tenant access metadata", () => {
+  const { repo, db } = makeRepo()
+  try {
+    const source = repo.createSource({
+      sourceId: "source-tenant-a",
+      sourceKey: "key-tenant-a",
+      kind: "file",
+      uri: "/knowledge/policy.pdf",
+      namespace: "upload",
+      tenantId: "tenant-a",
+      allowedGroups: ["support"],
+    })
+    const row = db.prepare(
+      "SELECT tenant_id, allowed_groups FROM sources WHERE source_id = ?"
+    ).get(source.sourceId) as { tenant_id: string; allowed_groups: string }
+    assert.equal(source.tenantId, "tenant-a")
+    assert.deepEqual(source.allowedGroups, ["support"])
+    assert.equal(row.tenant_id, "tenant-a")
+    assert.deepEqual(JSON.parse(row.allowed_groups), ["support"])
+  } finally {
+    db.close()
+  }
+})

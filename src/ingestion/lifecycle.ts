@@ -237,6 +237,7 @@ export class IngestionLifecycle {
       let source = this.docRepo.getSourceByKey(sourceKey)
       if (identity.kind === "file" && input.legacySourceAliases?.length) {
         const matches = this.docRepo.listLegacySources().filter((candidate) =>
+          candidate.tenantId === identity.tenantId &&
           resolveSourceIdentity(
             { kind: "file", uriOrExternalId: candidate.uri, namespace: "local" },
             undefined,
@@ -268,6 +269,8 @@ export class IngestionLifecycle {
               kind: identity.kind,
               uri: identity.uri,
               namespace: identity.namespace,
+              tenantId: identity.tenantId,
+              allowedGroups: identity.allowedGroups,
             },
             preferred?.active?.id ?? null
           )
@@ -281,6 +284,8 @@ export class IngestionLifecycle {
           kind: identity.kind,
           uri: identity.uri,
           namespace: identity.namespace,
+          tenantId: identity.tenantId,
+          allowedGroups: identity.allowedGroups,
         })
       }
 

@@ -35,10 +35,11 @@ export function createApp(options: {
    * P5.2: Ingestion access middleware. Mounted on /api/ingest routes so the
    * same identity context enforced at the chat gate is also enforced before
    * any ingestion handler runs (closes D-007 debt #3). Only provided in
-   * enforced mode; single_tenant mode omits it (ingest handlers ignore
-   * res.locals.accessContext, preserving exact pre-P5.2 behavior).
+   * enforced mode; without it, ingestion handlers derive the deterministic
+   * single-tenant context before persisting trusted access metadata.
    */
   ingestAccessMiddleware?: RequestHandler
+  managementAccessMiddleware?: RequestHandler
   sessionBinder?: SqliteSessionBinder
   eventsSource: AnswerEventsSource
   // Optional runtime surfaces for the /api/status endpoint.
@@ -87,8 +88,8 @@ export function createApp(options: {
   // ingestRouter so the identity gate runs for every /api/ingest* route
   // (file, json, url). The middleware reads only the Authorization header,
   // so it is safe before express.json() and before the raw octet-stream
-  // body parser. Only mounted when provided (enforced mode); single_tenant
-  // omits it, preserving exact pre-P5.2 ingestion behavior.
+  // body parser. It is mounted in enforced mode; single-tenant handlers use
+  // their deterministic context fallback when persisting access metadata.
   if (options.ingestAccessMiddleware) {
     app.use("/api/ingest", options.ingestAccessMiddleware)
   }
@@ -96,7 +97,7 @@ export function createApp(options: {
   app.use(express.json())
   // Ticket 05 follow-up wiring: mount access middleware (if provided) BEFORE
   // createChatRouter so res.locals.accessContext is populated for the session
-  // binder. Only mounted for chat routes — ingest ACL is Ticket 06+ scope.
+  // binder. Ingestion uses its separate identity gate and trusted ACL propagation.
   if (options.accessMiddleware) {
     app.use("/api/chat", options.accessMiddleware)
     app.use("/api/observability", options.accessMiddleware)
@@ -105,14 +106,16 @@ export function createApp(options: {
   app.use("/api", createObservabilityRouter({
     ragasArtifactPath: options.ragasArtifactPath,
   }))
+  if (options.managementAccessMiddleware) {
+    app.use("/api/handoffs", options.managementAccessMiddleware)
+    app.use("/api/sources", options.managementAccessMiddleware)
+  }
   // Ticket 09 P5: mount the Handoff HTTP API (spec §8 L1549-1552).
   // POST /chat/runs/:runId/handoff is covered by the /api/chat access middleware
   // mount above (chat scope) since the path starts with /chat. GET/PATCH /handoffs
-  // rely on the in-handler requireReviewOrAdmin check — in single_tenant mode
-  // ALL_LOCAL_SCOPES already includes review+admin, so no separate middleware
-  // mount is needed. In enforced mode (deferred — IdentityAdapter not yet wired),
-  // a future ticket must mount review/admin-scoped access middleware on
-  // /api/handoffs to enforce scope before the handler runs.
+  // authenticate through the identity-only management middleware in enforced
+  // mode, then retain the in-handler review-or-admin scope check. Single-tenant
+  // mode uses the deterministic local context, which includes both scopes.
   app.use("/api", createHandoffRouter(handoffStore))
   // Ticket 09 P6: mount the Feedback HTTP API (spec §8 L1551).
   // PUT /chat/runs/:runId/feedback is covered by the /api/chat access middleware
@@ -126,11 +129,9 @@ export function createApp(options: {
   //   POST /api/ingest/:docId/review       (review scope — L1580)
   //   POST /api/sources/:sourceId/retire   (admin scope — L1581)
   //   GET  /api/sources/:sourceId/status   (admin scope — L1582)
-  // Scope checks are in-handler (requireReviewOrAdmin / requireAdmin) — in
-  // single_tenant mode ALL_LOCAL_SCOPES includes both review and admin, so
-  // no separate middleware mount is needed. In enforced mode (deferred —
-  // IdentityAdapter not yet wired), a future ticket must mount review/admin
-  // access middleware before this router.
+  // /api/sources requests authenticate through the identity-only management
+  // middleware in enforced mode. Handler-level requireReviewOrAdmin / requireAdmin
+  // checks remain authoritative; single-tenant mode uses ALL_LOCAL_SCOPES.
   app.use(
     "/api",
     createSourceGovernanceRouter({
@@ -168,9 +169,8 @@ export function createApp(options: {
  * composition root (index.ts) from the loaded `OidcConfig`. When provided,
  * the chat access middleware enforces identity + chat scope per request;
  * the ingest access middleware enforces identity + ingest scope. In
- * single_tenant mode the adapter is unused (the middleware short-circuits
- * to `singleTenantAccessContext()`), and no ingest middleware is mounted
- * (preserving exact pre-P5.2 ingestion behavior).
+ * single_tenant mode the adapter is unused: chat middleware and ingestion
+ * handlers derive `singleTenantAccessContext()` directly.
  */
 export async function startServer(
   port: number,
@@ -193,11 +193,9 @@ export async function startServer(
     ...(identityAdapter ? { adapter: identityAdapter } : {}),
     requiredScope: "chat",
   })
-  // P5.2: ingestion gate — only mount in enforced mode so single_tenant
-  // ingestion behavior is byte-identical to pre-P5.2 (ingest handlers do
-  // not read res.locals.accessContext). In enforced mode the adapter
-  // resolves identity + ingest scope before any ingestion handler runs
-  // (closes D-007 debt #3: no ACL/accessContext check on /ingest/url).
+  // P5.2: ingestion gate — enforced mode resolves identity + ingest scope
+  // before handlers persist trusted tenant/group metadata. Single-tenant
+  // handlers use their deterministic AccessContext fallback.
   const ingestAccessMiddleware =
     config.accessMode === "enforced" && identityAdapter
       ? createAccessMiddleware({
@@ -206,12 +204,20 @@ export async function startServer(
           requiredScope: "ingest",
         })
       : undefined
+  const managementAccessMiddleware =
+    config.accessMode === "enforced"
+      ? createAccessMiddleware({
+          mode: "enforced",
+          ...(identityAdapter ? { adapter: identityAdapter } : {}),
+        })
+      : undefined
   const sessionBinder = new SqliteSessionBinder(processRuntime.db)
   const app = createApp({
     db: processRuntime.db,
     imageAssetPath: config.imageAssetPath,
     accessMiddleware,
     ...(ingestAccessMiddleware ? { ingestAccessMiddleware } : {}),
+    ...(managementAccessMiddleware ? { managementAccessMiddleware } : {}),
     sessionBinder,
     eventsSource,
     processRuntime,

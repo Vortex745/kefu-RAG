@@ -1,5 +1,8 @@
 import express, { Request, Response, Router } from "express"
+import { randomUUID } from "node:crypto"
+import { singleTenantAccessContext, type AccessContext } from "../access/context"
 import { createIngestionLifecycle } from "../ingestion/pipeline"
+import type { SourceIdentityInput } from "../ingestion/source_identity"
 import { openDb } from "../ingestion/tracking"
 import {
   fetchSingleUrl,
@@ -36,6 +39,31 @@ const PARSER_TYPES = new Set(["markitdown", "marker", "mineru"])
 const URL_FETCH_TIMEOUT_MS = 30_000
 const URL_FETCH_MAX_BYTES = 20 * 1024 * 1024 // 20MB，与单文件上传上限一致
 
+function trustedSourceIdentity(
+  res: Response,
+  sourceIdentity: Omit<SourceIdentityInput, "tenantId" | "allowedGroups">
+): SourceIdentityInput {
+  const accessContext =
+    (res.locals.accessContext as AccessContext | undefined) ?? singleTenantAccessContext()
+  return {
+    ...sourceIdentity,
+    tenantId: accessContext.tenantId,
+    allowedGroups: [...accessContext.groups],
+  }
+}
+
+function requestSourceIdentity(body: IngestRequestBody): Omit<SourceIdentityInput, "tenantId" | "allowedGroups"> {
+  if (body.sourceIdentity) return body.sourceIdentity
+  const source = body.source?.trim()
+  if (!source || source === "api") {
+    const id = randomUUID()
+    return { kind: "submission", uriOrExternalId: id, namespace: id }
+  }
+  return /^https?:\/\//i.test(source)
+    ? { kind: "url", uriOrExternalId: source }
+    : { kind: "legacy", uriOrExternalId: source }
+}
+
 rawIngestRouter.post(
   "/ingest/file",
   express.raw({ type: "application/octet-stream", limit: RAW_FILE_LIMIT }),
@@ -63,11 +91,11 @@ rawIngestRouter.post(
       fileName,
       mimeType: req.get("x-file-mime-type")?.trim() || "application/octet-stream",
       parserOverride,
-      sourceIdentity: {
+      sourceIdentity: trustedSourceIdentity(res, {
         kind: req.get("x-source-kind")?.trim() || "file",
         uriOrExternalId: sourceExternalId,
         namespace: req.get("x-source-namespace")?.trim() || "upload",
-      },
+      }),
     }))
   }
 )
@@ -84,7 +112,7 @@ router.post("/ingest", (req: Request, res: Response) => {
       title: body.title,
       content: body.content,
       source: body.source,
-      sourceIdentity: body.sourceIdentity,
+      sourceIdentity: trustedSourceIdentity(res, requestSourceIdentity(body)),
     })
   )
 })
@@ -146,11 +174,11 @@ router.post("/ingest/url", async (req: Request, res: Response) => {
       fileName: fetched.fileName,
       mimeType: fetched.mimeType,
       parserOverride,
-      sourceIdentity: {
+      sourceIdentity: trustedSourceIdentity(res, {
         kind: "web",
         uriOrExternalId: url,
         namespace: "web",
-      },
+      }),
     })
     return res.json(submission)
   }
@@ -221,11 +249,11 @@ router.post("/ingest/url", async (req: Request, res: Response) => {
       fileName: pageFetched.fileName,
       mimeType: pageFetched.mimeType,
       parserOverride,
-      sourceIdentity: {
+      sourceIdentity: trustedSourceIdentity(res, {
         kind: "web",
         uriOrExternalId: page.url.toString(),
         namespace: "web-sitemap",
-      },
+      }),
     })
     submissions.push({
       url: page.url.toString(),

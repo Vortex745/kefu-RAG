@@ -208,6 +208,11 @@ test("T17 #2: Runtime wires compressor + handoff + summarizer (coexistence of T6
     /createComplexKnowledgeMastraRunner\(\{[\s\S]*?\bsummarizer,[\s\S]*?compressor:\s*new ContextCompressorImpl[\s\S]*?handoffStore:\s*new SqliteHandoffStore/,
     "summarizer, compressor, and handoff coexist in the complex runner",
   )
+  assert.match(source, /toolSelector:\s*new ToolSelectorImpl\(chatClient,\s*cfg\.openaiChatModel\)/)
+  assert.match(
+    source,
+    /createMastraChatEventAdapter\(\{[\s\S]*?budgetMs:\s*DEFAULT_RUN_BUDGET_MS/,
+  )
 })
 
 test("T17 #2: Citations carry Evidence IDs — compression cannot drop citation provenance", () => {
@@ -651,10 +656,20 @@ test("T17: ComplexLoopControllerImpl is wired into the Mastra composition root",
   assert.match(indexSource, /complexLoopController,/, "controller passed to complex runner")
 })
 
-test("T17 residual: IdentityAdapter defined but NOT wired into server (follow-up ticket)", () => {
+test("T17: enforced management routes use production identity admission", () => {
   const serverSource = readFileSync(join(here, "..", "api", "server.ts"), "utf8")
-  // server.ts must explicitly note IdentityAdapter is deferred
-  assert.match(serverSource, /IdentityAdapter.*not.*wired|deferred/i, "server.ts documents IdentityAdapter as deferred (residual gap)")
+  assert.match(serverSource, /const managementAccessMiddleware\s*=/)
+  assert.match(serverSource, /mode:\s*"enforced"/)
+  assert.match(serverSource, /adapter:\s*identityAdapter/)
+  assert.match(
+    serverSource,
+    /app\.use\("\/api\/handoffs", options\.managementAccessMiddleware\)/,
+  )
+  assert.match(
+    serverSource,
+    /app\.use\("\/api\/sources", options\.managementAccessMiddleware\)/,
+  )
+  assert.match(serverSource, /managementAccessMiddleware \? \{ managementAccessMiddleware \}/)
 })
 
 test("T17 residual: runRagasShadowProfile has NO CLI/runner caller (follow-up ticket)", () => {

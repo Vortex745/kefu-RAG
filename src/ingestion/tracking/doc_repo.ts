@@ -70,6 +70,8 @@ export interface SourceIdentityInput {
   kind: string
   uri: string
   namespace: string
+  tenantId?: string
+  allowedGroups?: string[]
 }
 
 export interface SourceRecord {
@@ -146,8 +148,9 @@ export class DocumentRepo {
     this.db.prepare(
       `INSERT INTO sources (
         source_id, source_key, source_kind, source_uri, namespace,
-        active_doc_id, last_doc_id, last_outcome, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`
+        active_doc_id, last_doc_id, last_outcome, created_at, updated_at,
+        tenant_id, allowed_groups
+       ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`
     ).run(
       input.sourceId,
       input.sourceKey,
@@ -155,11 +158,10 @@ export class DocumentRepo {
       input.uri,
       input.namespace,
       now,
-      now
+      now,
+      input.tenantId ?? "default",
+      JSON.stringify(input.allowedGroups ?? [])
     )
-    // Ticket 06 P2: read back access metadata — sources row relies on SCHEMA
-    // DEFAULT 'default' / '[]' for tenant_id/allowed_groups when callers
-    // don't supply them (single-tenant mode; multi-tenant wiring is downstream).
     const row = this.db.prepare(
       `SELECT tenant_id, allowed_groups FROM sources WHERE source_id = ?`
     ).get(input.sourceId) as { tenant_id: string; allowed_groups: string }
@@ -176,13 +178,16 @@ export class DocumentRepo {
   ): void {
     const info = this.db.prepare(
       `UPDATE sources
-       SET source_key = ?, source_kind = ?, source_uri = ?, namespace = ?, updated_at = ?
+       SET source_key = ?, source_kind = ?, source_uri = ?, namespace = ?,
+           tenant_id = ?, allowed_groups = ?, updated_at = ?
        WHERE source_id = ?`
     ).run(
       input.sourceKey,
       input.kind,
       input.uri,
       input.namespace,
+      input.tenantId ?? "default",
+      JSON.stringify(input.allowedGroups ?? []),
       new Date().toISOString(),
       sourceId
     )
@@ -262,6 +267,16 @@ export class DocumentRepo {
       }
     }
     this.updateSourceIdentity(sourceId, input)
+    this.db.prepare(
+      `UPDATE documents
+       SET tenant_id = ?, allowed_groups = ?, updated_at = ?
+       WHERE source_id = ?`
+    ).run(
+      input.tenantId ?? "default",
+      JSON.stringify(input.allowedGroups ?? []),
+      new Date().toISOString(),
+      sourceId
+    )
     if (activeDocId) {
       this.db.prepare(
         `UPDATE sources

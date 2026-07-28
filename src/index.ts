@@ -33,6 +33,7 @@ import { ValidatorImpl } from "./critic/validator/validator"
 import { RePlannerImpl } from "./critic/replanner/replanner"
 import { PlannerImpl } from "./retrieval/planner/planner"
 import { ComplexLoopControllerImpl } from "./retrieval/complex_loop"
+import { ToolSelectorImpl } from "./retrieval/tool_selector"
 import { OpenAIAnswerModel, type AnswerRunObserver } from "./answer/generation"
 import { ContextualizerImpl } from "./answer/contextualizer"
 import { SummarizerImpl } from "./answer/summarizer"
@@ -45,6 +46,7 @@ import type { AccessContext } from "./access/context"
 import type { AgentMessage } from "./types"
 import {
   createModelCostEstimator,
+  DEFAULT_RUN_BUDGET_MS,
   type RunResourceBudgetOptions,
 } from "./runtime/run_context"
 
@@ -143,6 +145,7 @@ async function main() {
     replanner: new RePlannerImpl(),
     streamAnswerDraft: (messages: AgentMessage[], signal: AbortSignal) =>
       answerModel.stream(messages, signal),
+    toolSelector: new ToolSelectorImpl(chatClient, cfg.openaiChatModel),
     conversationStore,
     contextualizer,
     summarizer,
@@ -236,6 +239,7 @@ async function main() {
     runner,
     traceObserver: answerRuntime.traceRepository,
     observers: mastraObservers,
+    budgetMs: DEFAULT_RUN_BUDGET_MS,
     resourceBudget,
   })
   console.log("[kefu-RAG] Mastra runner wired — direct + ambiguous + simple + complex knowledge routes enabled with Conversation Memory + Handoff + Observer fanout")

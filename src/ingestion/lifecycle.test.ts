@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { openDb } from "./tracking"
+import { DocumentRepo } from "./tracking/doc_repo"
 import {
   IngestionLifecycle,
   type IngestionStageRunner,
@@ -216,6 +217,124 @@ test("Windows file identity is stable across path casing", {
     })
     assert.equal(unchanged.status, "unchanged")
     assert.equal(unchanged.docId, initial.docId)
+  } finally {
+    db.close()
+  }
+})
+
+test("same canonical source is isolated by tenant", () => {
+  const db = openDb(":memory:")
+  const lifecycle = new IngestionLifecycle(db, {
+    close: async () => {},
+    async run() {},
+  })
+  try {
+    const repo = new DocumentRepo(db)
+    const tenantA = lifecycle.submit({
+      title: "Tenant A policy",
+      content: "A",
+      sourceIdentity: {
+        kind: "file",
+        uriOrExternalId: "C:/knowledge/policy.pdf",
+        namespace: "upload",
+        tenantId: "tenant-a",
+        allowedGroups: ["support"],
+      },
+    })
+    const tenantB = lifecycle.submit({
+      title: "Tenant B policy",
+      content: "B",
+      sourceIdentity: {
+        kind: "file",
+        uriOrExternalId: "C:/knowledge/policy.pdf",
+        namespace: "upload",
+        tenantId: "tenant-b",
+        allowedGroups: ["billing"],
+      },
+    })
+    const documentA = repo.get(tenantA.docId)
+    const documentB = repo.get(tenantB.docId)
+    assert.ok(documentA && documentB)
+    assert.notEqual(documentA.sourceId, documentB.sourceId)
+    assert.equal(documentA.tenantId, "tenant-a")
+    assert.deepEqual(documentA.allowedGroups, ["support"])
+    assert.equal(documentB.tenantId, "tenant-b")
+    assert.deepEqual(documentB.allowedGroups, ["billing"])
+  } finally {
+    db.close()
+  }
+})
+
+test("legacy alias adoption stays within the tenant and updates access metadata", async () => {
+  const db = openDb(":memory:")
+  const lifecycle = new IngestionLifecycle(db, {
+    close: async () => {},
+    async run(_document, execution): Promise<void> {
+      for (const stage of ["chunk", "wikify", "storeChunks", "storeGraph"] as const) {
+        await execution.runStage(stage, {}, async () => undefined, () => ({ stage }))
+      }
+    },
+  })
+  try {
+    const repo = new DocumentRepo(db)
+    const legacyA = lifecycle.submit({
+      title: "Legacy A",
+      content: "same content",
+      sourceIdentity: {
+        kind: "legacy",
+        uriOrExternalId: "C:/knowledge/legacy.pdf",
+        tenantId: "tenant-a",
+        allowedGroups: ["old-support"],
+      },
+    })
+    await lifecycle.runNext()
+    const legacyB = lifecycle.submit({
+      title: "Legacy B",
+      content: "other tenant",
+      sourceIdentity: {
+        kind: "legacy",
+        uriOrExternalId: "C:/knowledge/legacy.pdf",
+        tenantId: "tenant-b",
+        allowedGroups: ["billing"],
+      },
+    })
+    await lifecycle.runNext()
+    const sourceA = repo.get(legacyA.docId)!.sourceId
+    const sourceB = repo.get(legacyB.docId)!.sourceId
+    db.prepare("UPDATE documents SET created_at = ? WHERE doc_id = ?")
+      .run("2099-01-01T00:00:00.000Z", legacyB.docId)
+
+    const adopted = lifecycle.submit({
+      title: "Canonical A",
+      content: "same content",
+      legacySourceAliases: ["C:/knowledge/legacy.pdf"],
+      sourceIdentity: {
+        kind: "file",
+        uriOrExternalId: "C:/knowledge/legacy.pdf",
+        namespace: "local",
+        tenantId: "tenant-a",
+        allowedGroups: ["support"],
+      },
+    })
+
+    assert.equal(adopted.status, "unchanged")
+    assert.equal(repo.get(adopted.docId)!.sourceId, sourceA)
+    assert.equal(repo.get(legacyB.docId)!.sourceId, sourceB)
+    const sources = db.prepare(
+      "SELECT source_id, tenant_id, allowed_groups, canonical_source_id FROM sources ORDER BY tenant_id"
+    ).all() as Array<{
+      source_id: string
+      tenant_id: string
+      allowed_groups: string
+      canonical_source_id: string | null
+    }>
+    const tenantA = sources.find((source) => source.source_id === sourceA)!
+    const tenantB = sources.find((source) => source.source_id === sourceB)!
+    assert.equal(tenantA.tenant_id, "tenant-a")
+    assert.deepEqual(JSON.parse(tenantA.allowed_groups), ["support"])
+    assert.equal(tenantB.tenant_id, "tenant-b")
+    assert.equal(tenantB.canonical_source_id, null)
+    assert.deepEqual(repo.get(legacyA.docId)!.allowedGroups, ["support"])
   } finally {
     db.close()
   }

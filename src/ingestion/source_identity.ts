@@ -16,8 +16,7 @@ export interface CanonicalSourceIdentity {
   kind: string
   uri: string
   namespace: string
-  // Ticket 05 P2: tenantId is an ATTRIBUTE on the source, not part of the identity key.
-  // Kept out of sourceIdentityKey to keep the schema migration additive.
+  // The default tenant keeps the legacy key; non-default tenants are key-isolated.
   tenantId: string
   allowedGroups: string[]
 }
@@ -83,7 +82,9 @@ export function resolveSourceIdentity(
 }
 
 export function sourceIdentityKey(identity: CanonicalSourceIdentity): string {
+  const keyParts = [identity.kind, identity.uri, identity.namespace]
+  if (identity.tenantId !== "default") keyParts.push(identity.tenantId)
   return createHash("sha256")
-    .update(JSON.stringify([identity.kind, identity.uri, identity.namespace]))
+    .update(JSON.stringify(keyParts))
     .digest("hex")
 }

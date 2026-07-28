@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import test from "node:test"
 import {
   resolveSourceIdentity,
@@ -56,10 +57,12 @@ test("Ticket 05 P2: empty allowedGroups represents tenant-wide visibility, never
   )
 })
 
-test("Ticket 05 P2: sourceIdentityKey remains stable regardless of tenantId (additive migration)", () => {
-  // The key is [kind, uri, namespace] — tenantId is an ATTRIBUTE, not part
-  // of the key. This keeps the schema migration additive: existing source
-  // rows keep their keys; tenantId is a new column with a default.
+test("sourceIdentityKey preserves the default-tenant legacy key and isolates non-default tenants", () => {
+  const defaultIdentity = resolveSourceIdentity(
+    { kind: "file", uriOrExternalId: "/data/report.pdf" },
+    undefined,
+    "fallback-id"
+  )
   const idTenantA = resolveSourceIdentity(
     { kind: "file", uriOrExternalId: "/data/report.pdf", tenantId: "tenant-a" },
     undefined,
@@ -70,11 +73,12 @@ test("Ticket 05 P2: sourceIdentityKey remains stable regardless of tenantId (add
     undefined,
     "fallback-id"
   )
-  assert.equal(
-    sourceIdentityKey(idTenantA),
-    sourceIdentityKey(idTenantB),
-    "sourceIdentityKey must not include tenantId — additive migration guarantee"
-  )
+  const legacyKey = createHash("sha256")
+    .update(JSON.stringify([defaultIdentity.kind, defaultIdentity.uri, defaultIdentity.namespace]))
+    .digest("hex")
+  assert.equal(sourceIdentityKey(defaultIdentity), legacyKey)
+  assert.notEqual(sourceIdentityKey(idTenantA), sourceIdentityKey(idTenantB))
+  assert.notEqual(sourceIdentityKey(defaultIdentity), sourceIdentityKey(idTenantA))
 })
 
 test("Ticket 05 P2: resolveStoredSourceIdentity (legacy path) defaults tenantId and allowedGroups", () => {
