@@ -130,12 +130,12 @@ function filterProvenanceByAccessContext<P extends { tenantId?: string; allowedG
 }
 
 export interface SearchOperations {
-  vectorSearch(query: Query, topK: number, hypothesis?: string, accessContext?: AccessContext): Promise<RetrievalResult[]>
-  bm25Search(query: Query, topK: number, accessContext?: AccessContext): Promise<RetrievalResult[]>
-  graphSearch(query: Query, topK: number, seeds?: string[], accessContext?: AccessContext): Promise<RetrievalResult[]>
-  pageIndexSearch(query: Query, topK: number, accessContext?: AccessContext): Promise<RetrievalResult[]>
-  rerank(query: string, results: RetrievalResult[]): Promise<RetrievalResult[]>
-  loadParents(identities: Array<{ documentId: string; id: string }>, accessContext?: AccessContext): Promise<Chunk[]>
+  vectorSearch(query: Query, topK: number, hypothesis?: string, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]>
+  bm25Search(query: Query, topK: number, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]>
+  graphSearch(query: Query, topK: number, seeds?: string[], accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]>
+  pageIndexSearch(query: Query, topK: number, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]>
+  rerank(query: string, results: RetrievalResult[], signal?: AbortSignal): Promise<RetrievalResult[]>
+  loadParents(identities: Array<{ documentId: string; id: string }>, accessContext?: AccessContext, signal?: AbortSignal): Promise<Chunk[]>
 }
 
 export interface RuntimeSearchDependencies {
@@ -159,12 +159,15 @@ export class RuntimeSearchOperations implements SearchOperations {
     return docIds.length > 0 ? [{ terms: { documentId: docIds } }] : []
   }
 
-  async vectorSearch(query: Query, topK: number, hypothesis?: string, accessContext?: AccessContext): Promise<RetrievalResult[]> {
+  async vectorSearch(query: Query, topK: number, hypothesis?: string, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]> {
     const embedInput = hypothesis && hypothesis.trim() ? hypothesis : query.text
-    const emb = await this.dependencies.embeddingClient.embeddings.create({
-      model: this.dependencies.embeddingModel,
-      input: embedInput,
-    })
+    const emb = await this.dependencies.embeddingClient.embeddings.create(
+      {
+        model: this.dependencies.embeddingModel,
+        input: embedInput,
+      },
+      { signal }
+    )
     const filters = [
       childFilter(),
       ...this.activeTermsFilter(),
@@ -182,7 +185,7 @@ export class RuntimeSearchOperations implements SearchOperations {
           : filters[0],
       },
       _source: true,
-    })
+    }, { signal })
     return res.hits.hits.map((hit) => ({
       chunk: hit._source as unknown as Chunk,
       score: hit._score ?? 0,
@@ -191,7 +194,7 @@ export class RuntimeSearchOperations implements SearchOperations {
     }))
   }
 
-  async bm25Search(query: Query, topK: number, accessContext?: AccessContext): Promise<RetrievalResult[]> {
+  async bm25Search(query: Query, topK: number, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]> {
     const res = await this.dependencies.es.search({
       index: INDEX_NAME,
       query: {
@@ -206,7 +209,7 @@ export class RuntimeSearchOperations implements SearchOperations {
       },
       size: topK,
       _source: true,
-    })
+    }, { signal })
     return res.hits.hits.map((hit) => ({
       chunk: hit._source as unknown as Chunk,
       score: hit._score ?? 0,
@@ -215,7 +218,7 @@ export class RuntimeSearchOperations implements SearchOperations {
     }))
   }
 
-  async graphSearch(query: Query, topK: number, seeds?: string[], accessContext?: AccessContext): Promise<RetrievalResult[]> {
+  async graphSearch(query: Query, topK: number, seeds?: string[], accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]> {
     const driver = this.dependencies.graphDriver ?? getDriver()
     const session = driver.session()
     const candidateLimit = topK * GRAPH_CANDIDATE_MULTIPLIER
@@ -336,7 +339,7 @@ export class RuntimeSearchOperations implements SearchOperations {
             },
         size: topK,
         _source: true,
-      })
+      }, { signal })
       return esRes.hits.hits.map((hit) => {
         const chunk = hit._source as unknown as Chunk
         const identity = `${chunk.documentId}\0${chunk.id}`
@@ -366,7 +369,7 @@ export class RuntimeSearchOperations implements SearchOperations {
     }
   }
 
-  async pageIndexSearch(query: Query, topK: number, accessContext?: AccessContext): Promise<RetrievalResult[]> {
+  async pageIndexSearch(query: Query, topK: number, accessContext?: AccessContext, signal?: AbortSignal): Promise<RetrievalResult[]> {
     const repo = this.dependencies.pageIndexRepo
     if (!repo) throw new Error("pageIndex repository unavailable")
     const allNodes = repo.searchNodes(query.text, PAGE_INDEX_NODE_LIMIT)
@@ -404,7 +407,7 @@ export class RuntimeSearchOperations implements SearchOperations {
       },
       size: topK,
       _source: true,
-    })
+    }, { signal })
     return esRes.hits.hits.map((hit) => ({
       chunk: hit._source as unknown as Chunk,
       score: hit._score ?? 0,
@@ -413,18 +416,20 @@ export class RuntimeSearchOperations implements SearchOperations {
     }))
   }
 
-  async rerank(query: string, results: RetrievalResult[]): Promise<RetrievalResult[]> {
+  async rerank(query: string, results: RetrievalResult[], signal?: AbortSignal): Promise<RetrievalResult[]> {
     return rerank(
       this.dependencies.chatClient,
       this.dependencies.chatModel,
       query,
-      results
+      results,
+      signal
     )
   }
 
   async loadParents(
     identities: Array<{ documentId: string; id: string }>,
-    accessContext?: AccessContext
+    accessContext?: AccessContext,
+    signal?: AbortSignal
   ): Promise<Chunk[]> {
     if (identities.length === 0) return []
     const aclFilters = accessContextFilter(accessContext)
@@ -447,7 +452,7 @@ export class RuntimeSearchOperations implements SearchOperations {
       },
       size: identities.length,
       _source: true,
-    })
+    }, { signal })
     return res.hits.hits.map((hit) => hit._source as unknown as Chunk)
   }
 }
@@ -520,19 +525,19 @@ export class SearcherImpl implements Searcher {
     }> = [
       {
         name: "vector",
-        run: () => this.operations.vectorSearch(query, CHANNEL_TOP_K, hypothesis, accessContext),
+        run: () => this.operations.vectorSearch(query, CHANNEL_TOP_K, hypothesis, accessContext, signal),
       },
       {
         name: "bm25",
-        run: () => this.operations.bm25Search(query, CHANNEL_TOP_K, accessContext),
+        run: () => this.operations.bm25Search(query, CHANNEL_TOP_K, accessContext, signal),
       },
       {
         name: "graph",
-        run: () => this.operations.graphSearch(query, CHANNEL_TOP_K, graphSeeds, accessContext),
+        run: () => this.operations.graphSearch(query, CHANNEL_TOP_K, graphSeeds, accessContext, signal),
       },
       {
         name: "pageIndex",
-        run: () => this.operations.pageIndexSearch(query, CHANNEL_TOP_K, accessContext),
+        run: () => this.operations.pageIndexSearch(query, CHANNEL_TOP_K, accessContext, signal),
       },
     ]
     const channelRunners = allChannelRunners.filter(({ name }) => selectedSet.has(name))
@@ -579,7 +584,7 @@ export class SearcherImpl implements Searcher {
     let reranked = fused
     let rerankerFailed = false
     try {
-      reranked = await this.operations.rerank(query.text, fused)
+      reranked = await this.operations.rerank(query.text, fused, signal)
     } catch (error) {
       rerankerFailed = true
       const message = error instanceof Error ? error.message : String(error)
@@ -597,7 +602,7 @@ export class SearcherImpl implements Searcher {
     let parentExpansionFailed = false
     let parents: Chunk[] = []
     try {
-      parents = await this.operations.loadParents(identities, accessContext)
+      parents = await this.operations.loadParents(identities, accessContext, signal)
     } catch (error) {
       parentExpansionFailed = true
       const message = error instanceof Error ? error.message : String(error)

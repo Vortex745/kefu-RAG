@@ -37,6 +37,8 @@ Copy `.env.example` to `.env` and fill in values. All variables are optional unl
 | `OPENAI_API_KEY` | — | Required | OpenAI-compatible API key |
 | `OPENAI_BASE_URL` | (empty) | Optional | Override for DeepSeek/ModelScope/etc. |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Required | Chat model ID (deployment-configured; request-level override removed in Ticket 02) |
+| `OPENAI_REQUEST_TIMEOUT_MS` | `200000` | Optional | Per-request timeout for every OpenAI-compatible call (chat + embedding) across Answer + ingestion chains. Default 200s; the OpenAI SDK default is 10 minutes |
+| `OPENAI_MAX_RETRIES` | `1` | Optional | Per-request retry count (SDK default is 2). Bounds worst-case hang to timeout × (1 + retries) |
 
 ### 2.3 Embeddings
 

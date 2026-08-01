@@ -31,7 +31,12 @@ export class LLMWikifier {
 
   constructor() {
     const cfg = loadConfig()
-    this.client = new OpenAI({ apiKey: cfg.openaiApiKey, baseURL: cfg.openaiBaseUrl || undefined })
+    this.client = new OpenAI({
+      apiKey: cfg.openaiApiKey,
+      baseURL: cfg.openaiBaseUrl || undefined,
+      timeout: cfg.openaiRequestTimeoutMs,
+      maxRetries: cfg.openaiMaxRetries,
+    })
     this.model = cfg.openaiChatModel
   }
 

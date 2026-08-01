@@ -103,6 +103,8 @@ async function main() {
     model: cfg.openaiChatModel,
     apiKey: cfg.openaiApiKey,
     ...(cfg.openaiBaseUrl ? { baseURL: cfg.openaiBaseUrl } : {}),
+    timeout: cfg.openaiRequestTimeoutMs,
+    maxRetries: cfg.openaiMaxRetries,
   })
   // Ticket 10 — Conversation Memory adapter. Pure pass-through to the
   // existing ConversationStore (T04 section 3 contract). The runner uses

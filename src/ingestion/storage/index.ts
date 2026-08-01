@@ -40,10 +40,18 @@ export function createIngestionStore(): IngestionStoreImpl {
     esClient: new Client({
       node: cfg.esNode,
       ...(cfg.esApiKey ? { auth: { apiKey: cfg.esApiKey } } : {}),
+      // ES client v9 ↔ server v8/v7 compat: pin media-type headers to
+      // compatible-with=8 (mirrors process_runtime.ts + store.ts + answer/runtime.ts).
+      headers: {
+        accept: "application/vnd.elasticsearch+json; compatible-with=8",
+        "content-type": "application/vnd.elasticsearch+json; compatible-with=8",
+      },
     }),
     embeddingClient: new OpenAI({
       apiKey: cfg.embeddingApiKey,
       baseURL: cfg.embeddingBaseUrl || undefined,
+      timeout: cfg.openaiRequestTimeoutMs,
+      maxRetries: cfg.openaiMaxRetries,
     }),
     embeddingModel: cfg.embeddingModel,
     embeddingDimensions: cfg.embeddingDimensions,

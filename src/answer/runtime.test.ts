@@ -24,6 +24,8 @@ const config: AppConfig = {
   embeddingBaseUrl: "http://embedding.test",
   embeddingModel: "configured-embedding-model",
   embeddingDimensions: 3,
+  openaiRequestTimeoutMs: 200_000,
+  openaiMaxRetries: 1,
   neo4jUri: "bolt://neo4j.test",
   neo4jUser: "neo4j",
   neo4jPassword: "password",

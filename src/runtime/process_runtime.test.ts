@@ -20,6 +20,8 @@ const config: AppConfig = {
   embeddingBaseUrl: "http://embedding.test",
   embeddingModel: "embedding-model",
   embeddingDimensions: 3,
+  openaiRequestTimeoutMs: 200_000,
+  openaiMaxRetries: 1,
   neo4jUri: "bolt://neo4j.test",
   neo4jUser: "neo4j",
   neo4jPassword: "password",
@@ -131,4 +133,49 @@ test("ProcessRuntime exposes chat, embedding, ES, Neo4j and SQLite adapters", ()
   assert.ok(runtime.elasticsearch, "elasticsearch exposed")
   assert.ok(runtime.neo4jDriver, "neo4jDriver exposed")
   assert.ok(runtime.db, "db exposed")
+})
+
+test("ProcessRuntime forwards config timeout/maxRetries to chat and embedding factories", () => {
+  const received: Array<Record<string, unknown>> = []
+  const factory: RuntimeClientFactory = {
+    createChatClient: (options) => {
+      received.push(options)
+      return {} as unknown as OpenAI
+    },
+    createEmbeddingClient: (options) => {
+      received.push(options)
+      return {} as unknown as OpenAI
+    },
+    createElasticsearchClient: () => ({} as unknown as Client),
+    createNeo4jDriver: () => ({} as unknown as Driver),
+  }
+
+  createProcessRuntime({ ...config, openaiRequestTimeoutMs: 200_000, openaiMaxRetries: 1 }, factory)
+
+  assert.equal(received.length, 2, "chat + embedding factories both invoked")
+  for (const options of received) {
+    assert.equal(options.timeout, 200_000, "timeout forwarded from config")
+    assert.equal(options.maxRetries, 1, "maxRetries forwarded from config")
+  }
+})
+
+test("ProcessRuntime forwards custom config timeout/maxRetries to factories", () => {
+  const received: Array<Record<string, unknown>> = []
+  const factory: RuntimeClientFactory = {
+    createChatClient: (options) => {
+      received.push(options)
+      return {} as unknown as OpenAI
+    },
+    createEmbeddingClient: (options) => {
+      received.push(options)
+      return {} as unknown as OpenAI
+    },
+    createElasticsearchClient: () => ({} as unknown as Client),
+    createNeo4jDriver: () => ({} as unknown as Driver),
+  }
+
+  createProcessRuntime({ ...config, openaiRequestTimeoutMs: 42_000, openaiMaxRetries: 0 }, factory)
+
+  assert.equal(received[0].timeout, 42_000, "custom timeout forwarded")
+  assert.equal(received[0].maxRetries, 0, "custom maxRetries forwarded")
 })

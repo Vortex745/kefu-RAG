@@ -29,14 +29,41 @@ export interface ProcessRuntime {
 }
 
 export interface RuntimeClientFactory {
-  createChatClient(options: { apiKey: string; baseURL?: string }): OpenAI
-  createEmbeddingClient(options: { apiKey: string; baseURL?: string }): OpenAI
+  createChatClient(options: {
+    apiKey: string
+    baseURL?: string
+    timeout?: number
+    maxRetries?: number
+  }): OpenAI
+  createEmbeddingClient(options: {
+    apiKey: string
+    baseURL?: string
+    timeout?: number
+    maxRetries?: number
+  }): OpenAI
   createElasticsearchClient(options: { node: string; apiKey?: string }): Client
   createNeo4jDriver(options: {
     uri: string
     user: string
     password: string
   }): Driver
+}
+
+/**
+ * OpenAI SDK per-request options bound from config: a finite timeout so a
+ * hung provider cannot occupy a connection for the SDK default 10 minutes,
+ * and a bounded retry count (SDK default 2). Applied at every client
+ * construction site so every chat/embedding call in the Answer + ingestion
+ * chains inherits the same bound.
+ */
+export function openaiClientOptions(cfg: {
+  openaiRequestTimeoutMs: number
+  openaiMaxRetries: number
+}): { timeout: number; maxRetries: number } {
+  return {
+    timeout: cfg.openaiRequestTimeoutMs,
+    maxRetries: cfg.openaiMaxRetries,
+  }
 }
 
 const defaultClientFactory: RuntimeClientFactory = {
@@ -46,6 +73,15 @@ const defaultClientFactory: RuntimeClientFactory = {
     new Client({
       node,
       ...(apiKey ? { auth: { apiKey } } : {}),
+      // ES client v9 defaults to compatible-with=9 media type headers, but
+      // deployed server is v8/v7 — without these headers the server rejects
+      // every request with media_type_header_exception. Pin to 8 for
+      // forward-compat with v8 servers (v9 client → v8 server is supported
+      // when the Accept/Content-Type advertise compatible-with=8).
+      headers: {
+        accept: "application/vnd.elasticsearch+json; compatible-with=8",
+        "content-type": "application/vnd.elasticsearch+json; compatible-with=8",
+      },
     }),
   createNeo4jDriver: ({ uri, user, password }) =>
     neo4j.driver(uri, neo4j.auth.basic(user, password)),
@@ -58,10 +94,12 @@ export function createProcessRuntime(
   const chatClient = createRunBudgetedOpenAIClient(clientFactory.createChatClient({
     apiKey: config.openaiApiKey,
     baseURL: config.openaiBaseUrl || undefined,
+    ...openaiClientOptions(config),
   }))
   const embeddingClient = createRunBudgetedOpenAIClient(clientFactory.createEmbeddingClient({
     apiKey: config.embeddingApiKey,
     baseURL: config.embeddingBaseUrl || undefined,
+    ...openaiClientOptions(config),
   }))
   const elasticsearch = clientFactory.createElasticsearchClient({
     node: config.esNode,

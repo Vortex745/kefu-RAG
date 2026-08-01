@@ -8,6 +8,21 @@ export interface AppConfig {
   embeddingBaseUrl: string
   embeddingModel: string
   embeddingDimensions: number
+  /**
+   * Per-request timeout for all OpenAI-compatible client calls (chat +
+   * embedding), in milliseconds. Default 200_000. The OpenAI SDK default is
+   * 10 minutes; this bounds every LLM call in the Answer and ingestion
+   * chains (router/planner/validator/rerank/wikify) so a hung provider
+   * cannot occupy a connection/queue for minutes.
+   */
+  openaiRequestTimeoutMs: number
+  /**
+   * Per-request retry count for all OpenAI-compatible client calls.
+   * Default 1 (SDK default is 2). Bounds worst-case hang time to
+   * timeout * (1 + maxRetries) — e.g. 200s * 2 = ~400s instead of the
+   * SDK default 10min * 3 = 30min.
+   */
+  openaiMaxRetries: number
   neo4jUri: string
   neo4jUser: string
   neo4jPassword: string
@@ -87,6 +102,14 @@ function positiveInteger(key: string, fallback: number): number {
   return value
 }
 
+function nonNegativeInteger(key: string, fallback: number): number {
+  const value = process.env[key] ? Number(process.env[key]) : fallback
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer`)
+  }
+  return value
+}
+
 function optionalNonNegativeInteger(key: string): number | undefined {
   if (!process.env[key]) return undefined
   const value = Number(process.env[key])
@@ -149,6 +172,8 @@ export function loadConfig(): AppConfig {
     embeddingBaseUrl: process.env.EMBEDDING_BASE_URL || openaiBaseUrl,
     embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
     embeddingDimensions,
+    openaiRequestTimeoutMs: positiveInteger("OPENAI_REQUEST_TIMEOUT_MS", 200_000),
+    openaiMaxRetries: nonNegativeInteger("OPENAI_MAX_RETRIES", 1),
     neo4jUri: process.env.NEO4J_URI || "bolt://localhost:7687",
     neo4jUser: process.env.NEO4J_USER || "neo4j",
     neo4jPassword: process.env.NEO4J_PASSWORD || "",

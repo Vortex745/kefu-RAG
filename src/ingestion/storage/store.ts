@@ -58,10 +58,19 @@ export class ESStore {
       this.client = clients?.client ?? new Client({
         node: cfg.esNode,
         ...(cfg.esApiKey ? { auth: { apiKey: cfg.esApiKey } } : {}),
+        // ES client v9 ↔ server v8/v7 compat: pin media-type headers to
+        // compatible-with=8 so the server doesn't reject with
+        // media_type_header_exception. Mirrors process_runtime.ts.
+        headers: {
+          accept: "application/vnd.elasticsearch+json; compatible-with=8",
+          "content-type": "application/vnd.elasticsearch+json; compatible-with=8",
+        },
       })
       this.embeddingClient = clients?.embeddingClient ?? new OpenAI({
         apiKey: cfg.embeddingApiKey,
         baseURL: cfg.embeddingBaseUrl || undefined,
+        timeout: cfg.openaiRequestTimeoutMs,
+        maxRetries: cfg.openaiMaxRetries,
       })
       this.embeddingModel = clients?.embeddingModel ?? cfg.embeddingModel
       this.embeddingDimensions = clients?.embeddingDimensions ?? cfg.embeddingDimensions

@@ -17,8 +17,18 @@ import {
 import { AnswerTraceRepository } from "./trace_repository"
 
 export interface AnswerClientFactory {
-  createChatClient(options: { apiKey: string; baseURL?: string }): OpenAI
-  createEmbeddingClient(options: { apiKey: string; baseURL?: string }): OpenAI
+  createChatClient(options: {
+    apiKey: string
+    baseURL?: string
+    timeout?: number
+    maxRetries?: number
+  }): OpenAI
+  createEmbeddingClient(options: {
+    apiKey: string
+    baseURL?: string
+    timeout?: number
+    maxRetries?: number
+  }): OpenAI
   createElasticsearchClient(options: { node: string; apiKey?: string }): Client
   createNeo4jDriver?(options: {
     uri: string
@@ -33,6 +43,14 @@ const defaultClientFactory: AnswerClientFactory = {
   createElasticsearchClient: ({ node, apiKey }) => new Client({
     node,
     ...(apiKey ? { auth: { apiKey } } : {}),
+    // ES client v9 ↔ server v8/v7 compat: pin media-type headers to
+    // compatible-with=8 (mirrors process_runtime.ts + store.ts). Without
+    // this, the worker's knowledge-retrieval ES queries fail with
+    // media_type_header_exception, breaking the entire chat SSE flow.
+    headers: {
+      accept: "application/vnd.elasticsearch+json; compatible-with=8",
+      "content-type": "application/vnd.elasticsearch+json; compatible-with=8",
+    },
   }),
 }
 

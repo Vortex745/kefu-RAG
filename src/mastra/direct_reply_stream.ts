@@ -49,6 +49,10 @@ export interface DirectReplyStreamOptions {
   apiKey: string
   /** OpenAI-compatible base URL (optional, e.g. "https://api.deepseek.com/v1"). */
   baseURL?: string
+  /** Per-request timeout in ms (default: SDK 10min). Bounds a hung stream. */
+  timeout?: number
+  /** Per-request retry count (default: SDK 2). */
+  maxRetries?: number
   /** System instructions for the model. Defaults to DIRECT_REPLY_INSTRUCTIONS. */
   instructions?: string
 }
@@ -61,12 +65,14 @@ export interface DirectReplyStreamOptions {
 export async function createDirectReplyStream(
   options: DirectReplyStreamOptions
 ): Promise<DirectReplyStream> {
-  const { model, apiKey, baseURL, instructions } = options
+  const { model, apiKey, baseURL, timeout, maxRetries, instructions } = options
   const systemInstructions = instructions ?? DIRECT_REPLY_INSTRUCTIONS
 
   const client = createRunBudgetedOpenAIClient(new OpenAI({
     apiKey,
     ...(baseURL ? { baseURL } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
+    ...(maxRetries !== undefined ? { maxRetries } : {}),
   }))
 
   // Return the DirectReplyStream. Each call streams the model's reply tokens
