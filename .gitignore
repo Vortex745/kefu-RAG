@@ -15,6 +15,9 @@ dist/
 
 # Non-runtime documentation and development-tool instructions
 *.md
+# Locally-retained planning/reference docs (kept on disk, not tracked)
+LANGFUSE-V4-MIGRATION.md
+MEMORY.md
 .cursorrules
 .windsurfrules
 .mcp.json
