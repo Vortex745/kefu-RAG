@@ -1,71 +1,60 @@
-# kefu-RAG
+# Agentic RAG
 
-智能客服 RAG 系统。把文档喂进去，机器人就能按文档内容回答客户问题，答案带出处，答错了会自动重试。
+一个通用的检索增强生成（RAG）系统。给它一批文档，它自动切块、向量化、抽取实体建图谱；你提问时，它检索相关内容，交给大模型生成带引用来源的答案。
 
-## 项目介绍
+不绑定具体业务场景。客服问答、内部知识库、文档检索，接上就能用。
 
-kefu-RAG 是一个 Agentic RAG 实现的客服问答服务。文档接入后自动切块、向量化、抽取实体建图谱；客户提问时，系统先判断问题类型，再走对应的检索与生成流程，最后给出带引用来源的答案。
+## 它怎么工作
 
-几个特点：
+提问进来先过 Router。LLM 判断问题属于哪一类，决定走哪条路：
 
-- 四种路由分派：寒暄直接答、说不清先追问、简单问题检索答、复杂问题拆开答
-- 自校正：答案生成后经过 Critic 检查，引用缺失或答非所问就补检索再答
-- 流式输出：SSE 逐字返回，前端边收边渲染
-- 服务可降级：ES、Neo4j 不在线时自动跳过对应检索，只有 OpenAI 是硬依赖
-- 带会话记忆，支持转人工与用户反馈
-
-技术栈：TypeScript + Node.js（CommonJS）、Express 5、Elasticsearch、Neo4j、SQLite、OpenAI（gpt-4o-mini）、Mastra、可选 Langfuse。前端为原生 JS，Apple Design 风格。
-
-## RAG 执行链路
-
-一次提问从 `POST /api/chat` 进入，走完整条链路：
-
-**1. 路由分派（Router）**
-
-LLM 先把问题归成四类，决定后续走哪条路：
-
-- `direct`：问候、寒暄，不涉及知识库，直接回复
-- `ambiguous`：问题没说清，先追问澄清，不生成答案
+- `direct`：闲聊寒暄，不涉及知识库，直接回复
+- `ambiguous`：问题没说清，先追问澄清
 - `simple`：单点事实问题，检索后回答
-- `complex`：多步骤问题，需要拆解
+- `complex`：多步骤问题，拆成子查询分别检索
 
-**2. 检索与生成**
+`simple` 走三路检索：向量检索（ES）、BM25 全文检索（ES）、实体图谱扩散（Neo4j）。`complex` 由 Planner 把问题拆成多个子查询，或走检索工具循环（最多 3 轮迭代、4 次工具调用），多路结果合并。
 
-- `simple`：Searcher 同时跑向量检索（ES）、BM25 全文检索（ES）和实体图谱扩散（Neo4j），结果交给 ContextAssembler 组装上下文，LLM 基于上下文生成答案草稿
-- `complex`：Planner 把问题拆成多个子查询，或走检索工具循环（最多 3 轮迭代、4 次工具调用），多路结果合并后走同样的生成流程
-
-**3. Critic 自校正**
-
-Validator 检查草稿：有没有答到点上、引用是否站得住。不合格就把问题交回 RePlanner，补充检索后再答，最多 3 轮。
-
-**4. 输出与收尾**
-
-答案连同引用证据经 SSE 流式返回。每轮问答的轨迹都会写入 trace，可选导出到 Langfuse；会话记录在回答后保存，30 天无活动的会话会被定时清理。
+检索到的内容交给 ContextAssembler 组装上下文，LLM 基于上下文生成答案草稿。草稿再过 Critic 检查：有没有答到点上、引用站不站得住。不合格就交回 RePlanner 补充检索再答，最多 3 轮。
 
 ```
-POST /api/chat
-   │
-   ▼
- Router ──→ direct ──→ 直接回复
-   │
-   ├──→ ambiguous ──→ 追问澄清
-   │
-   ├──→ simple ──→ Searcher(向量 + BM25 + 图谱) → 上下文组装 → LLM 草稿
-   │
-   └──→ complex ──→ Planner 拆子查询 / 检索循环(≤3轮) → 多路合并 → LLM 草稿
-                                                            │
-                                                            ▼
-                                                   Critic 校验 ──通过──→ 流式输出（带引用）
-                                                            │
-                                                          失败
-                                                            │
-                                                            ▼
-                                             RePlanner 补充检索 → 再答（≤3 轮）
+提问
+ │
+ ▼
+Router ──→ direct ──→ 直接回复
+ │
+ ├──→ ambiguous ──→ 追问澄清
+ │
+ ├──→ simple ──→ Searcher(向量 + BM25 + 图谱) → 上下文组装 → LLM 草稿
+ │
+ └──→ complex ──→ Planner 拆子查询 / 检索循环(≤3轮) → 多路合并 → LLM 草稿
+                                                          │
+                                                          ▼
+                                                 Critic 校验 ──通过──→ 输出（带引用）
+                                                          │
+                                                        失败
+                                                          │
+                                                          ▼
+                                           RePlanner 补充检索 → 再答（≤3 轮）
 ```
+
+答案连同引用证据经 SSE 流式返回。每轮问答写入 trace，可选导出到 Langfuse。
+
+## 技术栈
+
+- TypeScript + Node.js（CommonJS）
+- Express 5：API + SSE 流式
+- Elasticsearch：向量 + BM25 检索
+- Neo4j：实体图谱，wikilink 扩散
+- SQLite：会话记录、反馈、接入任务
+- OpenAI：embedding + chat（默认 gpt-4o-mini）
+- Mastra：路由 runner 编排
+- Langfuse：可选，trace 导出
+- 前端原生 JS，Apple Design 风格
 
 ## 启动配置
 
-启动前需要准备一个 OpenAI API Key，这是唯一的硬依赖。其余服务都是可选的，缺了会自动降级。
+启动前需要一个 OpenAI API Key，这是唯一的硬依赖。其余服务可选，缺了自动降级。
 
 ### 快速开始
 
@@ -98,7 +87,7 @@ npm run frontend        # 前端页面，另一个终端
 | ACTIVATION_MODE | auto | 设为 review 时接入内容需人工审核后生效 |
 | LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY | 无 | 两个都配齐才导出 trace 到 Langfuse |
 
-完整的变量清单见 `.env.example`。
+完整清单见 `.env.example`。
 
 ### 数据接入
 
