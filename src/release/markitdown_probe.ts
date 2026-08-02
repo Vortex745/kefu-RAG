@@ -24,15 +24,14 @@
 //     provenance, failure mode flags, version isolation state, tenantId) —
 //     never raw content, prompts, tokens, or auth material.
 //
-// Candidate-mode (OP-04 unsatisfied): the real `markitdown.exe` is broken
-// (Python 3.14 loads cp313 NumPy binaries; documented in MEMORY.md
-// 2026-07-15). The probe uses `process.execPath` + `-e` flag as the
-// OP-04 candidate-mode substitute for the happy-path command — same pattern
-// as parser.test.ts and consistent with T19/T20/T24 candidate-mode probes
-// (in-memory Searcher, scripted LLM/Validator). When OP-04 is lifted, the
-// fixture's command swap is the only change — the probe code, selectParser,
-// MarkItDownParser, normalizeMarkItDown, and runBoundedProcess are
-// production code exercised end-to-end.
+// Real-mode (OP-04 lifted 2026-07-25): the `markitdown` runtime is now
+// installed and verified (markitdown 0.1.5; miniconda3 path). The probe
+// uses the real `markitdown` command for the happy-path parse — same
+// selectParser + MarkItDownParser + normalizeMarkItDown + runBoundedProcess
+// production code paths as before. Failure scenarios still use
+// `process.execPath` + `-e` flag for deterministic synthetic failures
+// (missingRuntime, abiFailure, timeout, outputQuota, malformed, cancellation)
+// because those scenarios need precise control over process behavior.
 //
 // Rollback boundary: remove this module; no online runtime behavior changes
 // (per Ticket 21 rollback spec — probe is a verification-only artifact).
@@ -251,12 +250,12 @@ export const markitdownProbe: ProbeImplementation = async (
       mimeType: fixture.document.mimeType,
     })
 
-    // Construct candidate-mode command: process.execPath + -e flag producing
-    // the expected markdown. JSON.stringify ensures proper string escaping.
-    const happyScript = `process.stdout.write(${JSON.stringify(fixture.expectedMarkdown)})`
+    // Real markitdown command (OP-04 lifted): the fixture's document content
+    // is real markdown text written to a .md temp file, so `markitdown` parses
+    // it as-is. No commandArgs needed — markitdown accepts a file path
+    // positional argument produced by MarkItDownParser.runBoundedProcess.
     const happyParser = new MarkItDownParser({
-      command: process.execPath,
-      commandArgs: ["-e", happyScript],
+      command: "markitdown",
       timeoutMs: 5_000,
       inputLimitBytes: 1_024,
       outputLimitBytes: 10_000,

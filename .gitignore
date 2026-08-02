@@ -2,8 +2,35 @@ node_modules/
 dist/
 .env
 *.log
+*.err
 .DS_Store
 # Added by code-review-graph
 .code-review-graph/
 # Ticket 04: release-time evidence artifacts — must not dirty the trusted worktree
 .release-artifacts/
+
+# Agent task state and scratch work
+.omx/
+.scratch/
+
+# Non-runtime documentation and development-tool instructions
+*.md
+.cursorrules
+.windsurfrules
+.mcp.json
+opencode.jsonc
+
+# Test sources, end-to-end scenarios, and captured test output
+**/*.test.*
+**/*.spec.*
+src/evaluation/test-fixtures/
+e2e/
+test*.txt
+full_test*.txt
+release-verification-*.json
+console.log('observability
+
+# Design artifacts outside the runtime surface
+*.drawio
+*.drawio.png
+/rag-*.png
